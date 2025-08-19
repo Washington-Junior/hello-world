@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lekker Labours - Professional Service Estimator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #0ea5e9 100%);
+        }
+        .shadow-2xl {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // UI Components
+        const Card = ({ children, className = '', variant = 'default' }) => {
+            const variants = {
+                default: 'bg-white border border-gray-200 rounded-xl shadow-sm',
+                elevated: 'bg-white rounded-2xl shadow-lg',
+                outline: 'border-2 border-blue-100 rounded-xl bg-blue-50'
+            };
+            return React.createElement('div', { className: `p-6 ${variants[variant]} ${className}` }, children);
+        };
+
+        const Button = ({ children, onClick, variant = 'primary', size = 'md', disabled = false, loading = false }) => {
+            const variants = {
+                primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
+                secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500',
+                danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
+                success: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500'
+            };
+            const sizes = {
+                sm: 'px-3 py-1.5 text-sm',
+                md: 'px-4 py-2 text-sm',
+                lg: 'px-6 py-3 text-base'
+            };
+            return React.createElement('button', {
+                onClick,
+                disabled: disabled || loading,
+                className: `font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]}`
+            }, loading ? [
+                React.createElement('div', { key: 'loading', className: 'flex items-center justify-center' }, [
+                    React.createElement('div', { key: 'spinner', className: 'animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2' }),
+                    'Loading...'
+                ])
+            ] : children);
+        };
+
+        const Input = ({ label, value, onChange, type = 'text', min, max, step, className = '' }) => {
+            return React.createElement('div', { className: 'space-y-1' }, [
+                label && React.createElement('label', { key: 'label', className: 'block text-sm font-medium text-gray-700' }, label),
+                React.createElement('input', {
+                    key: 'input',
+                    type,
+                    value,
+                    onChange,
+                    min,
+                    max,
+                    step,
+                    className: `w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${className}`
+                })
+            ]);
+        };
+
+        // Main Application
+        const LekkerLaboursApp = () => {
+            const [activeService, setActiveService] = useState('cleaning');
+            const [scenarios, setScenarios] = useState({});
+            const [currentScenario, setCurrentScenario] = useState(null);
+
+            const services = [
+                { id: 'cleaning', name: 'Cleaning', icon: '🧹' },
+                { id: 'painting', name: 'Painting', icon: '🎨' },
+                { id: 'landscaping', name: 'Landscaping', icon: '🌿' },
+                { id: 'repairs', name: 'Repairs', icon: '🔧' }
+            ];
+
+            const calculateCleaning = (scenario) => {
+                const clientPrice = scenario.hours * scenario.rate;
+                const commission = clientPrice * scenario.commission;
+                const workerPay = clientPrice - commission;
+                return { clientPrice, commission, workerPay };
+            };
+
+            const calculatePainting = (scenario) => {
+                const area = scenario.wallsArea + scenario.ceilingArea;
+                const hours = area * 0.2 * scenario.coats;
+                const labourCost = hours * scenario.rate;
+                const materialsCost = area * scenario.paintCost * scenario.coats;
+                const total = labourCost + materialsCost;
+                const commission = total * scenario.commission;
+                return { total, commission, labourCost, materialsCost };
+            };
+
+            const getDefaultScenario = (service) => {
+                const defaults = {
+                    cleaning: { hours: 2, rate: 150, commission: 0.3 },
+                    painting: { wallsArea: 50, ceilingArea: 20, coats: 2, rate: 250, paintCost: 35, commission: 0.3 },
+                    landscaping: { area: 100, complexity: 'medium', rate: 200, commission: 0.3 },
+                    repairs: { hours: 3, rate: 180, partsCost: 0, commission: 0.3 }
+                };
+                return { ...defaults[service], id: Date.now(), name: 'New Scenario' };
+            };
+
+            useEffect(() => {
+                if (!currentScenario) {
+                    const defaultScenario = getDefaultScenario(activeService);
+                    setCurrentScenario(defaultScenario);
+                }
+            }, [activeService]);
+
+            const handleCalculate = () => {
+                let result;
+                switch (activeService) {
+                    case 'cleaning':
+                        result = calculateCleaning(currentScenario);
+                        break;
+                    case 'painting':
+                        result = calculatePainting(currentScenario);
+                        break;
+                    default:
+                        result = { total: 0, commission: 0 };
+                }
+                return result;
+            };
+
+            const result = useMemo(() => handleCalculate(), [currentScenario]);
+
+            return React.createElement('div', { className: 'min-h-screen gradient-bg' }, [
+                // Header
+                React.createElement('header', { key: 'header', className: 'bg-white shadow-lg' }, [
+                    React.createElement('div', { className: 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8' }, [
+                        React.createElement('div', { className: 'flex justify-between items-center py-6' }, [
+                            React.createElement('div', { className: 'flex items-center' }, [
+                                React.createElement('h1', { className: 'text-3xl font-bold text-gray-900' }, '🏗️ Lekker Labours'),
+                                React.createElement('span', { className: 'ml-4 text-sm text-gray-500' }, 'Professional Service Estimator')
+                            ]),
+                            React.createElement('div', { className: 'flex space-x-4' }, [
+                                React.createElement(Button, { variant: 'secondary', size: 'sm' }, 'Save Scenario'),
+                                React.createElement(Button, { variant: 'primary', size: 'sm' }, 'Export PDF')
+                            ])
+                        ])
+                    ])
+                ]),
+
+                // Main Content
+                React.createElement('main', { key: 'main', className: 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8' }, [
+                    // Service Navigation
+                    React.createElement('div', { key: 'nav', className: 'mb-8' }, [
+                        React.createElement('div', { className: 'bg-white rounded-2xl shadow-2xl p-6' }, [
+                            React.createElement('h2', { className: 'text-xl font-semibold mb-4 text-gray-900' }, 'Select Service Type'),
+                            React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-4' }, 
+                                services.map(service => 
+                                    React.createElement('button', {
+                                        key: service.id,
+                                        onClick: () => setActiveService(service.id),
+                                        className: `flex flex-col items-center p-4 rounded-lg transition-all duration-200 ${
+                                            activeService === service.id 
+                                                ? 'bg-blue-100 border-2 border-blue-500 text-blue-700' 
+                                                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                                        }`
+                                    }, [
+                                        React.createElement('span', { key: 'icon', className: 'text-2xl mb-2' }, service.icon),
+                                        React.createElement('span', { key: 'name', className: 'font-medium' }, service.name)
+                                    ])
+                                )
+                            )
+                        ])
+                    ]),
+
+                    // Estimator Panel
+                    React.createElement('div', { key: 'estimator', className: 'grid grid-cols-1 lg:grid-cols-2 gap-8' }, [
+                        // Input Panel
+                        React.createElement(Card, { key: 'input', variant: 'elevated' }, [
+                            React.createElement('h3', { className: 'text-lg font-semibold mb-4 text-gray-900' }, 'Estimation Parameters'),
+                            
+                            activeService === 'cleaning' && React.createElement('div', { className: 'space-y-4' }, [
+                                React.createElement(Input, {
+                                    key: 'hours',
+                                    label: 'Hours',
+                                    type: 'number',
+                                    value: currentScenario?.hours || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, hours: Number(e.target.value) }),
+                                    min: 0,
+                                    step: 0.5
+                                }),
+                                React.createElement(Input, {
+                                    key: 'rate',
+                                    label: 'Hourly Rate (R)',
+                                    type: 'number',
+                                    value: currentScenario?.rate || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, rate: Number(e.target.value) }),
+                                    min: 0,
+                                    step: 5
+                                }),
+                                React.createElement(Input, {
+                                    key: 'commission',
+                                    label: 'Commission (%)',
+                                    type: 'number',
+                                    value: currentScenario ? (currentScenario.commission * 100) : 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, commission: Number(e.target.value) / 100 }),
+                                    min: 0,
+                                    max: 100,
+                                    step: 1
+                                })
+                            ]),
+
+                            activeService === 'painting' && React.createElement('div', { className: 'space-y-4' }, [
+                                React.createElement(Input, {
+                                    key: 'walls',
+                                    label: 'Walls Area (m²)',
+                                    type: 'number',
+                                    value: currentScenario?.wallsArea || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, wallsArea: Number(e.target.value) }),
+                                    min: 0
+                                }),
+                                React.createElement(Input, {
+                                    key: 'ceiling',
+                                    label: 'Ceiling Area (m²)',
+                                    type: 'number',
+                                    value: currentScenario?.ceilingArea || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, ceilingArea: Number(e.target.value) }),
+                                    min: 0
+                                }),
+                                React.createElement(Input, {
+                                    key: 'coats',
+                                    label: 'Number of Coats',
+                                    type: 'number',
+                                    value: currentScenario?.coats || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, coats: Number(e.target.value) }),
+                                    min: 1,
+                                    max: 4
+                                }),
+                                React.createElement(Input, {
+                                    key: 'paintCost',
+                                    label: 'Paint Cost/m² (R)',
+                                    type: 'number',
+                                    value: currentScenario?.paintCost || 0,
+                                    onChange: (e) => setCurrentScenario({ ...currentScenario, paintCost: Number(e.target.value) }),
+                                    min: 0,
+                                    step: 5
+                                })
+                            ])
+                        ]),
+
+                        // Results Panel
+                        React.createElement(Card, { key: 'results', variant: 'elevated' }, [
+                            React.createElement('h3', { className: 'text-lg font-semibold mb-4 text-gray-900' }, 'Pricing Breakdown'),
+                            
+                            activeService === 'cleaning' && result && React.createElement('div', { className: 'space-y-3' }, [
+                                React.createElement('div', { key: 'client', className: 'flex justify-between items-center p-3 bg-blue-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Client Price:'),
+                                    React.createElement('span', { className: 'font-bold text-blue-700' }, `R${result.clientPrice.toFixed(2)}`)
+                                ]),
+                                React.createElement('div', { key: 'commission', className: 'flex justify-between items-center p-3 bg-green-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Lekker Commission:'),
+                                    React.createElement('span', { className: 'font-bold text-green-700' }, `R${result.commission.toFixed(2)}`)
+                                ]),
+                                React.createElement('div', { key: 'worker', className: 'flex justify-between items-center p-3 bg-yellow-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Worker Payout:'),
+                                    React.createElement('span', { className: 'font-bold text-yellow-700' }, `R${result.workerPay.toFixed(2)}`)
+                                ])
+                            ]),
+
+                            activeService === 'painting' && result && React.createElement('div', { className: 'space-y-3' }, [
+                                React.createElement('div', { key: 'labour', className: 'flex justify-between items-center p-3 bg-blue-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Labour Cost:'),
+                                    React.createElement('span', { className: 'font-bold text-blue-700' }, `R${result.labourCost.toFixed(2)}`)
+                                ]),
+                                React.createElement('div', { key: 'materials', className: 'flex justify-between items-center p-3 bg-purple-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Materials Cost:'),
+                                    React.createElement('span', { className: 'font-bold text-purple-700' }, `R${result.materialsCost.toFixed(2)}`)
+                                ]),
+                                React.createElement('div', { key: 'total', className: 'flex justify-between items-center p-3 bg-green-50 rounded-lg border-t-2 border-green-200' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Total Client Price:'),
+                                    React.createElement('span', { className: 'font-bold text-green-700' }, `R${result.total.toFixed(2)}`)
+                                ]),
+                                React.createElement('div', { key: 'commission', className: 'flex justify-between items-center p-3 bg-orange-50 rounded-lg' }, [
+                                    React.createElement('span', { className: 'font-medium' }, 'Lekker Commission:'),
+                                    React.createElement('span', { className: 'font-bold text-orange-700' }, `R${result.commission.toFixed(2)}`)
+                                ])
+                            ])
+                        ])
+                    ])
+                ]),
+
+                // Footer
+                React.createElement('footer', { key: 'footer', className: 'bg-gray-800 text-white mt-16' }, [
+                    React.createElement('div', { className: 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8' }, [
+                        React.createElement('div', { className: 'text-center' }, [
+                            React.createElement('p', { className: 'text-sm' }, '© 2024 Lekker Labours. Professional service estimation platform.'),
+                            React.createElement('p', { className: 'text-xs text-gray-400 mt-2' }, 'All prices in South African Rand (ZAR)')
+                        ])
+                    ])
+                ])
+            ]);
+        };
+
+        // Render the application
+        ReactDOM.render(React.createElement(LekkerLaboursApp), document.getElementById('root'));
+    </script>
+</body>
+</html>
